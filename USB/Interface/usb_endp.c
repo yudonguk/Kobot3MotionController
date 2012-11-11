@@ -138,7 +138,7 @@ void EP1_OUT_Callback(void)
 		else
 		{
 			USB_SIL_Write(EP1_IN, usbTxRxBuffer, sendPacketSize);
-			SetEPTxValid(ENDP1);
+			SetEPTxValid(ENDP1 );
 		}
 	}
 
@@ -396,7 +396,7 @@ void ProcessMotionControllerCommand(
 			else
 			{
 				commands[i].data.float32Data =
-						motorControlTypes[commands[i].option].pid.proportionalGain;
+						motorControlTypes[commands[i].option].pid.kp;
 			}
 			break;
 
@@ -410,7 +410,7 @@ void ProcessMotionControllerCommand(
 			else
 			{
 				commands[i].data.float32Data =
-						motorControlTypes[commands[i].option].pid.integralGain;
+						motorControlTypes[commands[i].option].pid.ki;
 			}
 			break;
 
@@ -424,7 +424,7 @@ void ProcessMotionControllerCommand(
 			else
 			{
 				commands[i].data.float32Data =
-						motorControlTypes[commands[i].option].pid.derivativeGain;
+						motorControlTypes[commands[i].option].pid.kd;
 			}
 			break;
 
@@ -605,24 +605,24 @@ void ApplyUpdatedMotionControllerCommand()
 		case 152:
 			//Set P gain
 		{
-			motorControlTypes[updatedCommand[i].option].pid.proportionalGain =
-					updatedCommand[i].data.float32Data;
+			SetKp(&motorControlTypes[updatedCommand[i].option],
+					updatedCommand[i].data.float32Data);
 		}
 			break;
 
 		case 153:
 			//Set I gain
 		{
-			motorControlTypes[updatedCommand[i].option].pid.integralGain =
-					updatedCommand[i].data.float32Data;
+			SetKi(&motorControlTypes[updatedCommand[i].option],
+					updatedCommand[i].data.float32Data);
 		}
 			break;
 
 		case 154:
 			//Set D gain
 		{
-			motorControlTypes[updatedCommand[i].option].pid.derivativeGain =
-					updatedCommand[i].data.float32Data;
+			SetKd(&motorControlTypes[updatedCommand[i].option],
+					updatedCommand[i].data.float32Data);
 		}
 			break;
 

@@ -11,10 +11,17 @@
 #include <inttypes.h>
 #include "type.h"
 
-#define CONTROL_MOTOR_COUNT 2
+#define CONTROL_MOTOR_COUNT (2)
 #define PULSE_PER_ROTATION (38 * 49)
-#define DEFAULT_POSITION_ERROR_LIMIT (3)
-#define CONTROL_PERIOD_MS 10
+#define DEFAULT_POSITION_ERROR_LIMIT (3.0f)
+#define CONTROL_PERIOD_MS (10)
+
+#define DEFAULT_KP (0.033f)
+#define DEFAULT_KI (6.60f)
+#define DEFAULT_KD (0.00011f)
+
+#define DEFAULT_ACCELERATION (100.0f)
+#define DEFAULT_MAX_VELCOITY (100.0f)
 
 typedef enum MotorControlMode
 {
@@ -23,23 +30,16 @@ typedef enum MotorControlMode
 
 typedef struct PidParameter
 {
+	float kp, ki, kd;
+	float error2Coeff, error1Coeff, error0Coeff;
+	float errors[3]; //[0] = t-2, [1] = t-1, [2] = t
+
 	float desiredValue;
 	float currentValue;
 
-	float proportionalGain;
-	float integralGain;
-	float derivativeGain;
-
-	//for debuging
-	float error, proportionalTerm, derivativeTerm, mainpulatedValue;
-
-	//
+	float mainpulatedValue;
 	float manipulatedValueLimit;
 	float dt;
-
-	//read-only
-	float integralTerm;
-	float previousError;
 } PidParameter;
 
 typedef struct MovingAverageType
@@ -78,6 +78,10 @@ void MotorControlTimerNvicConfig();
 void MotorControlTimerInit();
 
 void MotorControlProcess();
+
+void SetKp(MotorControlType* pMotorControlType, float kp_);
+void SetKi(MotorControlType* pMotorControlType, float ki_);
+void SetKd(MotorControlType* pMotorControlType, float kd_);
 
 extern MotorControlType motorControlTypes[CONTROL_MOTOR_COUNT];
 

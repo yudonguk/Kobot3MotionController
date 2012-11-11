@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #include "CMSIS/misc.h"
 #include "CMSIS/stm32f10x_rcc.h"
@@ -39,23 +40,36 @@ static volatile BOOL isOnTimeForMotorControlProcess = FALSE;
 MotorControlType motorControlTypes[CONTROL_MOTOR_COUNT] =
 {
 { CONTROL_FREE, 0.0f,
-{ 0.0f, 0.0f, 0.033f, 6.60f, 0.00011f, 0.0f, 0.0f, 0.0f, 0.0f, 999.0f,
-		CONTROL_PERIOD_MS / 1000.0f, 0.0f, 0.0f },
-{ 100.0f, 100.0f },
+{ DEFAULT_KP, DEFAULT_KI, DEFAULT_KD,
+		(DEFAULT_KP
+				+ (DEFAULT_KI * CONTROL_PERIOD_MS
+						+ DEFAULT_KD / CONTROL_PERIOD_MS)/ 1000.0f),(-DEFAULT_KP
+				- 2 * DEFAULT_KD / CONTROL_PERIOD_MS / 1000.0f), (DEFAULT_KD
+				/ CONTROL_PERIOD_MS / 1000.0f),
+		{ 0.0f, 0.0f, 0.0f }, 0.0f, 0.0f, 0.0f, 999.0f, CONTROL_PERIOD_MS
+				/ 1000.0f },
+{ DEFAULT_ACCELERATION, DEFAULT_MAX_VELCOITY },
 {
 { 0.0f, }, 0 }, 0.0f, DEFAULT_POSITION_ERROR_LIMIT, PULSE_PER_ROTATION, 0, 0, 0,
 		0.0f },
+
 { CONTROL_FREE, 0.0f,
-{ 0.0f, 0.0f, 0.033f, 6.60f, 0.00011f, 0.0f, 0.0f, 0.0f, 0.0f, 999.0f,
-		CONTROL_PERIOD_MS / 1000.0f, 0.0f, 0.0f },
-{ 100.0f, 100.0f },
+{ DEFAULT_KP, DEFAULT_KI, DEFAULT_KD,
+		(DEFAULT_KP
+				+ (DEFAULT_KI * CONTROL_PERIOD_MS
+						+ DEFAULT_KD / CONTROL_PERIOD_MS)/ 1000.0f),(-DEFAULT_KP
+				- 2 * DEFAULT_KD / CONTROL_PERIOD_MS / 1000.0f), (DEFAULT_KD
+				/ CONTROL_PERIOD_MS / 1000.0f),
+		{ 0.0f, 0.0f, 0.0f }, 0.0f, 0.0f, 0.0f, 999.0f, CONTROL_PERIOD_MS
+				/ 1000.0f },
+{ DEFAULT_ACCELERATION, DEFAULT_MAX_VELCOITY },
 {
 { 0.0f, }, 0 }, 0.0f, DEFAULT_POSITION_ERROR_LIMIT, PULSE_PER_ROTATION, 0, 0, 0,
 		0.0f } };
 
 void TIM2_IRQHandler()
 {
-	TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
+	TIM_ClearITPendingBit(TIM2, TIM_IT_Update );
 
 	isOnTimeForMotorControlProcess = TRUE;
 }
@@ -235,34 +249,22 @@ void MotorControlProcess()
 
 float CalculateManipulatedValue(PidParameter* const pid)
 {
-	const float error = pid->desiredValue - pid->currentValue;
-	const float dt = pid->dt;
 	const float maxLimitValue = pid->manipulatedValueLimit;
-	const float minLimitValue = -maxLimitValue;
+	const float error2 = pid->desiredValue - pid->currentValue; //error(t)
+	const float error1 = pid->errors[2]; //error(t-1)
+	const float error0 = pid->errors[1]; //error(t-2)
 
-	float proportionalTerm = pid->proportionalGain * error;
-	float integralTerm = pid->integralTerm + pid->integralGain * error * dt;
-	float derivativeTerm = pid->derivativeGain * (error - pid->previousError)
-			/ dt;
+	pid->mainpulatedValue =
+			BOUNDARY(pid->mainpulatedValue + error2 * pid->error2Coeff
+					+ error1 * pid->error1Coeff + error0 * pid->error0Coeff
+					, -maxLimitValue, maxLimitValue)
+	;
 
-	//proportionalTerm = BOUNDARY(proportionalTerm, minLimitValue, maxLimitValue);
-	integralTerm = BOUNDARY(integralTerm, minLimitValue, maxLimitValue);
-	//derivativeTerm = BOUNDARY(derivativeTerm, minLimitValue, maxLimitValue);
+	pid->errors[0] = error0;
+	pid->errors[1] = error1;
+	pid->errors[2] = error2;
 
-	float manipulatedValue = proportionalTerm + integralTerm + derivativeTerm;
-	manipulatedValue = BOUNDARY(manipulatedValue, minLimitValue, maxLimitValue);
-
-	//for debuging//
-	pid->error = error;
-	pid->proportionalTerm = proportionalTerm;
-	pid->derivativeTerm = derivativeTerm;
-	pid->mainpulatedValue = manipulatedValue;
-	////////////////
-
-	pid->integralTerm = integralTerm;
-	pid->previousError = error;
-
-	return manipulatedValue;
+	return pid->mainpulatedValue;
 }
 
 void SetMotorPwmTo(uint16_t id, float motor0, float motor1)
@@ -332,7 +334,7 @@ void MotorControlTimerRccConfig()
 
 void MotorControlTimerNvicConfig()
 {
-	//Timer Interrupt
+//Timer Interrupt
 	NVIC_InitTypeDef nvicTiemrInit;
 	nvicTiemrInit.NVIC_IRQChannel = TIM2_IRQn;
 	nvicTiemrInit.NVIC_IRQChannelPreemptionPriority = 1;
@@ -356,8 +358,49 @@ void MotorControlTimerInit()
 
 	TIM_TimeBaseInit(TIM2, &timeBaseInit);
 
-	TIM_ClearFlag(TIM2, TIM_IT_Update);
+	TIM_ClearFlag(TIM2, TIM_IT_Update );
 	TIM_ITConfig(TIM2, TIM_IT_Update, ENABLE);
 	TIM_Cmd(TIM2, ENABLE);
 }
 
+void SetKp(MotorControlType* pMotorControlType, float kp_)
+{
+	pMotorControlType->pid.kp = kp_;
+
+	const float dt = pMotorControlType->pid.dt;
+	const float kp = pMotorControlType->pid.kp;
+	const float ki = pMotorControlType->pid.ki;
+	const float kd = pMotorControlType->pid.kd;
+
+	pMotorControlType->pid.error2Coeff = kp + ki * dt + kd / dt;
+	pMotorControlType->pid.error1Coeff = -(kp + 2 * kd / dt);
+	pMotorControlType->pid.error0Coeff = kd / dt;
+}
+
+void SetKi(MotorControlType* pMotorControlType, float ki_)
+{
+	pMotorControlType->pid.ki = ki_;
+
+	const float dt = pMotorControlType->pid.dt;
+	const float kp = pMotorControlType->pid.kp;
+	const float ki = pMotorControlType->pid.ki;
+	const float kd = pMotorControlType->pid.kd;
+
+	pMotorControlType->pid.error2Coeff = kp + ki * dt + kd / dt;
+	pMotorControlType->pid.error1Coeff = -(kp + 2 * kd / dt);
+	pMotorControlType->pid.error0Coeff = kd / dt;
+}
+
+void SetKd(MotorControlType* pMotorControlType, float kd_)
+{
+	pMotorControlType->pid.kd = kd_;
+
+	const float dt = pMotorControlType->pid.dt;
+	const float kp = pMotorControlType->pid.kp;
+	const float ki = pMotorControlType->pid.ki;
+	const float kd = pMotorControlType->pid.kd;
+
+	pMotorControlType->pid.error2Coeff = kp + ki * dt + kd / dt;
+	pMotorControlType->pid.error1Coeff = -(kp + 2 * kd / dt);
+	pMotorControlType->pid.error0Coeff = kd / dt;
+}
